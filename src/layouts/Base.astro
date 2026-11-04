@@ -35,7 +35,8 @@ const nav = [
     {mathjax && (
       <>
         <script is:inline>window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] } };</script>
-        <script is:inline async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+        {/* integrity: the browser refuses the file if the CDN serves anything else (hash matches cdnjs, jsDelivr and the npm tarball) */}
+        <script is:inline async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js" integrity="sha512-tiaNmAzpy3KcgtuiLwT9WSlSsqGqtDB5ylMwxoqG5ysNIyzkBw24k6UFTuXGgyXJLJ8aM/ho1h67NRKedPx++Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
       </>
     )}
   </head>
