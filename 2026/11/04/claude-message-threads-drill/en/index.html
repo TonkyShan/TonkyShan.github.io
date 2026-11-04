@@ -1,0 +1,91 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5"><title>Figuring Out Claude&#39;s Message Threads with a Local Mock | ShanTianQi</title><meta name="author" content="ShanTianQi"><link rel="alternate" hreflang="zh-CN" href="https://tonkyshan.cn/2026/11/04/claude-message-threads-drill/"><link rel="alternate" hreflang="en" href="https://tonkyshan.cn/2026/11/04/claude-message-threads-drill/en/"><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="alternate" type="application/rss+xml" href="/rss.xml" title="ShanTianQi"><style>:root{--width:720px;--font-main:Verdana, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;--font-secondary:Verdana, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;--font-scale:1em;--background-color:#fff;--heading-color:#222;--text-color:#444;--link-color:#3273dc;--visited-color:#8b6fcb;--code-background-color:#f2f2f2;--code-color:#222;--blockquote-color:#222}@media (prefers-color-scheme:dark){:root{--background-color:#01242e;--heading-color:#eee;--text-color:#ddd;--link-color:#8cc2dd;--visited-color:#8b6fcb;--code-background-color:#000;--code-color:#ddd;--blockquote-color:#ccc}}body{font-family:var(--font-secondary);font-size:var(--font-scale);max-width:var(--width);text-align:left;background-color:var(--background-color);word-wrap:break-word;overflow-wrap:break-word;color:var(--text-color);margin:auto;padding:20px;line-height:1.5}h1,h2,h3,h4,h5,h6{font-family:var(--font-main);color:var(--heading-color)}a{color:var(--link-color);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}nav a{margin-right:8px}strong,b{color:var(--heading-color)}time{font-family:monospace;font-size:15px;font-style:normal}main{line-height:1.6}table{width:100%}hr{border:0;border-top:1px dashed}img{max-width:100%}code{background-color:var(--code-background-color);color:var(--code-color);border-radius:3px;padding:2px;font-family:monospace}blockquote{color:var(--code-color);border-left:1px solid #999;padding-left:20px;font-style:italic}footer{text-align:center;padding:25px 0}.title:hover{text-decoration:none}.title h1{font-size:1.5em}pre{border-radius:3px;margin-block:1em;padding:15px;line-height:125%;overflow-x:auto;background-color:var(--code-background-color)!important}pre code{background:0 0;padding:0}.astro-code,.astro-code span{color:var(--shiki-light)}@media (prefers-color-scheme:dark){.astro-code,.astro-code span{color:var(--shiki-dark)}}div.mermaid{text-align:center;margin:1em 0}main table{border-collapse:collapse;display:block;overflow-x:auto}main th,main td{border:1px solid #8080804d;padding:4px 8px}ul.blog-posts{padding:unset;list-style-type:none}ul.blog-posts li{display:flex}ul.blog-posts li span{flex:0 0 130px}ul.blog-posts li a:visited{color:var(--visited-color)}.tags a{margin-right:8px}
+</style></head><body><header><a class="title" href="/"><h1>ShanTianQi</h1></a><nav><p><a href="/">Home</a> <a href="/blog/">Blog</a> <a href="/about/">About</a> </p></nav></header><main><h1>Figuring Out Claude&#39;s Message Threads with a Local Mock</h1><p><i><time datetime="2026-11-04T20:00:00.000Z">4 Nov, 2026</time></i><span class="lang-switch"> · <a href="/2026/11/04/claude-message-threads-drill/" lang="zh-CN">中文</a> · <b>English</b></span></p><p>On November 2, the Claude API launched a beta feature called message threads.</p>
+<h2 id="what-it-solves">What it solves</h2>
+<p>If you have written an agent, you know that every call to the model resends the system prompt, the tool definitions and the whole conversation so far. Each tool call is another turn, so after a few dozen of them every request is large, and the server has to validate and tokenize the whole conversation again each time.</p>
+<p>Message threads let the server keep the conversation. The first request sends the full conversation as usual, plus <code>"thread": {"type": "create"}</code>. After that, each turn sends only the new messages, along with the id of the previous reply.</p>
+<p>There are two limits. A thread expires 5 minutes after its last request. And pricing doesn’t change: it saves request size and time to first token, not tokens.</p>
+<h2 id="simulating-it-locally">Simulating it locally</h2>
+<p>I had Claude Code write a local mock of the API from the official docs, implementing the thread rules: create, continue, a 5-minute expiry, each id can be continued only once, and no system prompt or tools on a continue request. The clock can be moved by hand, so “6 minutes later” doesn’t mean actually waiting.</p>
+<p>Then I pointed the official Go SDK at the mock. The SDK has a helper object for threads that rebuilds a thread when it expires, so you can see exactly which requests it sends when something goes wrong.</p>
+<h2 id="how-much-it-saves">How much it saves</h2>
+<p>The simulated agent reads code: a system prompt of about 8 KB, and a little over 2 KB per grep result.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Tool calls</th><th>Total sent without a thread</th><th>Total sent with a thread</th><th>Ratio</th></tr></thead><tbody><tr><td>5</td><td>110 KB</td><td>28 KB</td><td>3.9x</td></tr><tr><td>20</td><td>993 KB</td><td>86 KB</td><td>11.5x</td></tr><tr><td>50</td><td>5.4 MB</td><td>0.2 MB</td><td>26.6x</td></tr></tbody></table>
+<p>Without a thread, every turn resends an ever longer history, so the total grows with the square of the number of turns; with a thread it grows linearly. The amount the server has to process follows the same ratios.</p>
+<p>These numbers are bytes sent and content processed, not latency. How much faster the first token really arrives can only be measured against the real API; the official wording is “lower and steadier”.</p>
+<h2 id="when-something-goes-wrong">When something goes wrong</h2>
+<p>Next, six scenarios with deliberate faults:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Scenario</th><th>What the SDK does</th></tr></thead><tbody><tr><td>Waiting 6 minutes for an approval, the thread expires</td><td>The continue gets a 404; it rebuilds from the full local conversation and carries on continuing</td></tr><tr><td>The server answered but didn’t store the turn</td><td>No sign of it at the time; the next continue gets a 404, then it rebuilds</td></tr><tr><td>The same id was already continued elsewhere</td><td>It gets an “already continued” error and rebuilds</td></tr><tr><td>The system prompt changed mid-thread</td><td>It fails locally without sending a single request</td></tr><tr><td>The model changed mid-thread</td><td>The request goes out, the server returns a 400, and the SDK passes it to the caller</td></tr><tr><td>The model refused</td><td>The refused turn is dropped, and the next turn starts a new thread</td></tr></tbody></table>
+<p>The second scenario is worth a closer look. If, say, a tool call the model was writing gets cut off by max_tokens, the API returns the result as usual but doesn’t store that turn in the thread. Nothing in the response says so; you only get the 404 when you try to continue on the next turn. A request that succeeded doesn’t mean the state was saved.</p>
+<h2 id="how-the-sdk-is-written">How the SDK is written</h2>
+<p>The Go SDK’s thread code is only 654 lines, and the structure is simple.</p>
+<p>It keeps a full copy of the conversation locally, and tracks which part of it has already been sent to the server; each turn sends only the difference. When something fails it only steps down, in one direction: first it tries to continue; if that fails, it rebuilds from the full local conversation; if the thread still can’t be found after that, it stops using threads and sends plain requests. Because it never steps back up, a turn sends at most 3 requests and never flips between the two modes.</p>
+<p>After a refusal, a stream that broke off midway, or a reply from a fallback model, the next turn starts a new thread straight away, because the client can’t be sure what the server stored.</p>
+<p>The official docs put it this way: “Your application stays the source of truth for the conversation.” What the server keeps is only there to speed things up and can disappear at any time; the client has to be able to rebuild from its own data.</p>
+<h2 id="when-to-use-it">When to use it</h2>
+<p>For tool-call loops that run without stopping, the more turns, the bigger the gain.</p>
+<p>If the flow waits for a human approval or an external callback, the thread has to be rebuilt once 5 minutes pass, so it will expire almost every time, and using it just adds a round trip. It also doesn’t support batches, token counting or context compaction, and it can’t be used where zero data retention is required.</p><p class="tags"><a href="/tags/Claude-API/">#Claude API</a><a href="/tags/Agent/">#Agent</a><a href="/tags/Go/">#Go</a></p></main><footer><span>© 2022–2026 ShanTianQi · Inspired by <a href="https://bearblog.dev">Bear <span role="img" aria-label="ASCII bear logo">ʕ•ᴥ•ʔ</span></a></span></footer><script>
+      // For whoever opens the console
+      console.log('%cʕ•ᴥ•ʔ 凡是过往，皆为序章 → /about/2024/', 'color:#8b6fcb');
+    </script><script type="module" src="/_astro/Base.astro_astro_type_script_index_0_lang.CDxXQ5Fl.js"></script></body></html>

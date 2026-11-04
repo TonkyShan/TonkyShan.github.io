@@ -1,0 +1,91 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5"><title>用本地 mock 摸清 Claude 的 message threads | ShanTianQi</title><meta name="author" content="ShanTianQi"><link rel="alternate" hreflang="zh-CN" href="https://tonkyshan.cn/2026/11/04/claude-message-threads-drill/"><link rel="alternate" hreflang="en" href="https://tonkyshan.cn/2026/11/04/claude-message-threads-drill/en/"><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="alternate" type="application/rss+xml" href="/rss.xml" title="ShanTianQi"><style>:root{--width:720px;--font-main:Verdana, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;--font-secondary:Verdana, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;--font-scale:1em;--background-color:#fff;--heading-color:#222;--text-color:#444;--link-color:#3273dc;--visited-color:#8b6fcb;--code-background-color:#f2f2f2;--code-color:#222;--blockquote-color:#222}@media (prefers-color-scheme:dark){:root{--background-color:#01242e;--heading-color:#eee;--text-color:#ddd;--link-color:#8cc2dd;--visited-color:#8b6fcb;--code-background-color:#000;--code-color:#ddd;--blockquote-color:#ccc}}body{font-family:var(--font-secondary);font-size:var(--font-scale);max-width:var(--width);text-align:left;background-color:var(--background-color);word-wrap:break-word;overflow-wrap:break-word;color:var(--text-color);margin:auto;padding:20px;line-height:1.5}h1,h2,h3,h4,h5,h6{font-family:var(--font-main);color:var(--heading-color)}a{color:var(--link-color);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}nav a{margin-right:8px}strong,b{color:var(--heading-color)}time{font-family:monospace;font-size:15px;font-style:normal}main{line-height:1.6}table{width:100%}hr{border:0;border-top:1px dashed}img{max-width:100%}code{background-color:var(--code-background-color);color:var(--code-color);border-radius:3px;padding:2px;font-family:monospace}blockquote{color:var(--code-color);border-left:1px solid #999;padding-left:20px;font-style:italic}footer{text-align:center;padding:25px 0}.title:hover{text-decoration:none}.title h1{font-size:1.5em}pre{border-radius:3px;margin-block:1em;padding:15px;line-height:125%;overflow-x:auto;background-color:var(--code-background-color)!important}pre code{background:0 0;padding:0}.astro-code,.astro-code span{color:var(--shiki-light)}@media (prefers-color-scheme:dark){.astro-code,.astro-code span{color:var(--shiki-dark)}}div.mermaid{text-align:center;margin:1em 0}main table{border-collapse:collapse;display:block;overflow-x:auto}main th,main td{border:1px solid #8080804d;padding:4px 8px}ul.blog-posts{padding:unset;list-style-type:none}ul.blog-posts li{display:flex}ul.blog-posts li span{flex:0 0 130px}ul.blog-posts li a:visited{color:var(--visited-color)}.tags a{margin-right:8px}
+</style></head><body><header><a class="title" href="/"><h1>ShanTianQi</h1></a><nav><p><a href="/">Home</a> <a href="/blog/">Blog</a> <a href="/about/">About</a> </p></nav></header><main><h1>用本地 mock 摸清 Claude 的 message threads</h1><p><i><time datetime="2026-11-04T20:00:00.000Z">4 Nov, 2026</time></i><span class="lang-switch"> · <b>中文</b> · <a href="/2026/11/04/claude-message-threads-drill/en/" lang="en">English</a></span></p><p>Claude API 11 月 2 日上线了一个 beta 功能，叫 message threads。</p>
+<h2 id="它解决什么问题">它解决什么问题</h2>
+<p>写过 Agent 的应该都知道，每调用一次模型，都要把系统提示、工具定义和之前的全部对话重新发一遍。Agent 调一次工具就是一轮，调了几十次之后，每次请求都很大，服务端每次也要把整段对话重新校验、分词一遍。</p>
+<p>message threads 的做法是让服务端把对话存起来。第一次请求照常发完整对话，多加一个 <code>"thread": {"type": "create"}</code>；之后每一轮只发新增的消息，带上上一轮回复的 id。</p>
+<p>它有两个限制。一是最后一次请求之后 5 分钟就过期。二是价格不变，它省的是请求体积和首字延迟，不省 token 钱。</p>
+<h2 id="在本地模拟">在本地模拟</h2>
+<p>我让 Claude Code 照着官方文档写了一个本地 mock 的 API 服务，把 threads 的规则都实现出来：创建、续接、5 分钟过期、一个 id 只能续接一次、续接时不能再带系统提示和工具。时钟可以手动拨，“过 6 分钟”不用真的等。</p>
+<p>然后让官方的 Go SDK 连到这个 mock 上跑。SDK 里有一个专门处理 thread 的辅助对象，过期了会自动重建。这样就能看到它在各种异常情况下具体会发出什么请求。</p>
+<h2 id="先看省了多少">先看省了多少</h2>
+<p>模拟的是一个读代码的 Agent，系统提示 8 KB 左右，每次 grep 返回 2 KB 多。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>工具调用次数</th><th>不用 thread 的总发送量</th><th>用 thread 的总发送量</th><th>相差</th></tr></thead><tbody><tr><td>5</td><td>110 KB</td><td>28 KB</td><td>3.9 倍</td></tr><tr><td>20</td><td>993 KB</td><td>86 KB</td><td>11.5 倍</td></tr><tr><td>50</td><td>5.4 MB</td><td>0.2 MB</td><td>26.6 倍</td></tr></tbody></table>
+<p>不用 thread 的时候，每轮都要重发越来越长的历史，总量按轮数的平方增长；用了 thread 是线性的。服务端要处理的内容也是同样的比例。</p>
+<p>这里测的是发送量和处理量，不是延迟。真实的首字延迟能快多少，得调真的 API 才知道，官方的说法是”更低、更稳定”。</p>
+<h2 id="再看出了问题怎么办">再看出了问题怎么办</h2>
+<p>接下来故意制造异常，一共 6 个场景：</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>场景</th><th>SDK 的反应</th></tr></thead><tbody><tr><td>等人审批，停了 6 分钟，thread 过期</td><td>续接收到 404，用本地的完整对话重建，再接着续接</td></tr><tr><td>服务端回答了，但没有存这一轮</td><td>当时没有任何迹象，下一轮续接才收到 404，然后重建</td></tr><tr><td>同一个 id 已经被别处续接过</td><td>收到”已续接”的错误，重建</td></tr><tr><td>中途改了系统提示</td><td>本地直接报错，一个请求都没发</td></tr><tr><td>中途换了模型</td><td>请求发出去，服务端返回 400，SDK 不处理，交给调用方</td></tr><tr><td>模型拒答</td><td>不保留被拒的那一轮，下一轮重开一个新 thread</td></tr></tbody></table>
+<p>其中第二个场景值得单独说一下。比如模型生成的工具调用被 max_tokens 截断了，API 照常返回结果，但不会把这一轮存进 thread。返回里没有任何标记，要等下一轮去续接的时候才会收到 404。这次请求成功了，不代表状态已经存下来了。</p>
+<h2 id="sdk-是怎么写的">SDK 是怎么写的</h2>
+<p>Go SDK 里处理 thread 的代码只有 654 行，结构不复杂。</p>
+<p>它在本地保留一份完整的对话，同时记着其中哪部分已经发给了服务端，每一轮只发两者之间的差。出错的时候只往一个方向降级：先尝试续接；续接不上，就用本地的完整对话重建；重建之后还是找不到，就干脆不用 thread，按普通请求发。只降不升，所以一轮最多发 3 个请求，不会在两种模式之间来回切。</p>
+<p>模型拒答、流式输出中途断开、回复来自后备模型，这三种情况下，下一轮会直接重开一个新 thread，因为客户端没法确定服务端到底存了什么。</p>
+<p>官方文档里有一句话：Your application stays the source of truth for the conversation。服务端存的东西只是用来加速的，随时可能没了，客户端得能从自己手里的数据重建。</p>
+<h2 id="什么时候用">什么时候用</h2>
+<p>连续不停的工具调用循环，轮数越多，收益越大。</p>
+<p>如果中间要等人审批、等外部回调，5 分钟一过就得重建，几乎每次都会过期，用了反而多一次往返。另外，它不支持批处理、token 计数和上下文压缩，需要零数据保留的场景也不能用。</p><p class="tags"><a href="/tags/Claude-API/">#Claude API</a><a href="/tags/Agent/">#Agent</a><a href="/tags/Go/">#Go</a></p></main><footer><span>© 2022–2026 ShanTianQi · Inspired by <a href="https://bearblog.dev">Bear <span role="img" aria-label="ASCII bear logo">ʕ•ᴥ•ʔ</span></a></span></footer><script>
+      // For whoever opens the console
+      console.log('%cʕ•ᴥ•ʔ 凡是过往，皆为序章 → /about/2024/', 'color:#8b6fcb');
+    </script><script type="module" src="/_astro/Base.astro_astro_type_script_index_0_lang.CDxXQ5Fl.js"></script></body></html>
